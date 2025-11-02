@@ -1,7 +1,3 @@
-google-genai
-streamlit
-# アプリで必要なその他のパッケージもここに追加
-
 import streamlit as st
 import google.generativeai as genai
 
