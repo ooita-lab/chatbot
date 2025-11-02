@@ -15,7 +15,7 @@ if not gemini_api_key:
 else:
     # Geminiクライアントの設定
     genai.configure(api_key=gemini_api_key)
-    model = genai.GenerativeModel("gemini-pro")
+    model = genai.GenerativeModel("gemini-2.5-pro")
 
     # チャット履歴の保存
     if "messages" not in st.session_state:
