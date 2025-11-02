@@ -5,7 +5,6 @@ import json # JSON処理をより明示的にするためにインポート
 
 # 💡 システム命令の定義
 # これがチャットボットの「人格」と「ルール」を定義します。
-# モデルは工学レポートの不適切な点を指摘し、学生に考えさせることを目的とします。
 SYSTEM_INSTRUCTION = """
 あなたは、工学部の学生向けのレポート専門のピアレビューアシスタントです。
 あなたの役割は、学生が入力した文章に含まれる「工学レポートとして不適切な用語」「曖昧な表現」「論理の飛躍」を指摘することに限定されます。
@@ -49,7 +48,7 @@ else:
     uploaded_file = st.file_uploader("CSVファイルをアップロードしてください（B列の文章をチェックします）", type="csv")
     
     if uploaded_file:
-        # 💡 修正: CSV処理全体をst.spinner()で囲むことで、エラーを回避し、UIをシンプルにする
+        # 💡 修正: CSV処理全体をst.spinner()で囲む
         with st.spinner("CSVファイルの一括チェックを実行中..."):
             
             # CSVファイルの読み込みとエンコーディングの対応
@@ -73,25 +72,35 @@ else:
                  st.warning("アップロードされたCSVにはB列（インデックス1）が存在しません。")
                  st.stop()
 
-            # B2以降の行を処理 (インデックス1から最後まで)
-            texts_to_check = df.iloc[1:, 1].dropna().tolist()
-            
-            if not texts_to_check:
-                st.info("B2以降のセルにチェックすべき有効な文章が見つかりませんでした。")
+            # --- 💡 C列の確保と初期化（結果の書き込み先） ---
+            if df.shape[1] < 3:
+                new_column_name = 'Gemini指摘'
+                # pandasのDataFrameに新しい列を挿入 (C列 = インデックス2)
+                df.insert(loc=2, column=new_column_name, value=None)
             else:
-                st.info(f"合計 {len(texts_to_check)} 個の文章をチェックします。")
+                new_column_name = df.columns[2]
                 
-                results_container = st.container()
+            st.info(f"評価結果はCSVの **'{new_column_name}' 列 (C列) の2行目以降** に反映されます。")
+            
+            texts_processed = 0
+            results_container = st.container()
 
-                # 各文章を繰り返し処理してAPIに送信
-                for i, text_prompt in enumerate(texts_to_check):
+            # ヘッダー行 (index 0) をスキップして、データ行 (index 1 = B2以降) を処理
+            # df.index[1:] でデータ行のインデックスを取得
+            for index in df.index[1:]:
+                # B列（インデックス1）の値を取得
+                text_prompt = df.iloc[index, 1]
+                
+                # B列が有効なテキストである場合のみ処理
+                if pd.notna(text_prompt) and isinstance(text_prompt, str) and text_prompt.strip():
+                    texts_processed += 1
                     
-                    results_container.markdown(f"#### 📄 文章 {i + 2} (B{i + 2}セル):")
+                    results_container.markdown(f"#### 📄 文章 {index + 1} 行目 (B{index + 1}セル):")
                     results_container.text(text_prompt)
 
                     api_url = API_URL_TEMPLATE.format(model_name=model_name, api_key=gemini_api_key)
 
-                    # 一括チェック時のAPIペイロード (履歴なし)
+                    # APIペイロード (履歴なし)
                     data = {
                         "systemInstruction": {
                             "parts": [{"text": SYSTEM_INSTRUCTION}]
@@ -104,7 +113,6 @@ else:
                     }
 
                     try:
-                        # 💡 修正: 個別のスピナーを削除。全体スピナーが動作中
                         response = requests.post(api_url, headers=HEADERS, json=data, timeout=TIMEOUT)
                         response.raise_for_status()
                         
@@ -119,21 +127,41 @@ else:
                                 
                                 gemini_reply = candidate["content"]["parts"][0]["text"]
                             
+                        # --- 💡 結果をDataFrameに書き込む (C列 = インデックス2) ---
+                        df.iloc[index, 2] = gemini_reply 
+                            
                         # 結果を表示
                         results_container.markdown(f"**指摘 ({model_name}):**")
                         results_container.markdown(gemini_reply)
                         results_container.markdown("---")
                     
                     except requests.exceptions.RequestException as e:
-                        error_message = f"文章 {i + 2} のAPIリクエストエラー: {e}（APIキー、モデル名、ネットワークを確認してください）"
+                        error_message = f"文章 {index + 1} 行目のAPIリクエストエラー: {e}"
                         results_container.error(error_message)
+                        df.iloc[index, 2] = f"APIエラー: {e}" # エラーもC列に記録
                         results_container.markdown("---")
                     except Exception as e:
-                        error_message = f"文章 {i + 2} で予期せぬエラーが発生しました: {e}"
+                        error_message = f"文章 {index + 1} 行目で予期せぬエラーが発生しました: {e}"
                         results_container.error(error_message)
+                        df.iloc[index, 2] = f"予期せぬエラー: {e}" # エラーもC列に記録
                         results_container.markdown("---")
 
-                st.success("CSVファイルの一括チェックが完了しました！")
+            if texts_processed > 0:
+                st.success(f"CSVファイルの一括チェックが完了しました！合計 {texts_processed} 個の文章を処理しました。")
+                
+                # --- 💡 ダウンロードボタンの追加 ---
+                # to_csvでCSV形式に変換し、UTF-8でエンコード
+                csv_output = df.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📝 結果をダウンロード (C列に指摘事項を追記)",
+                    data=csv_output,
+                    file_name='report_check_results.csv',
+                    mime='text/csv',
+                    help="ダウンロードしたCSVファイルをExcelなどで開くとC列に指摘事項が確認できます。"
+                )
+            else:
+                st.info("B2以降のセルにチェックすべき有効な文章が見つかりませんでした。")
+
     
     # ----------------------------------------------------
     # 通常のチャットセクション (ファイルがアップロードされていない場合のみ表示)
@@ -182,7 +210,7 @@ else:
             }
 
             try:
-                # 💡 修正: st.chat_message() の中ではなく、st.spinner()を単独で使用
+                # 💡 修正: st.spinner()を単独で使用
                 with st.spinner(f"{model_name} が指摘を生成中..."):
                     response = requests.post(api_url, headers=HEADERS, json=data, timeout=TIMEOUT)
                     response.raise_for_status() # HTTPエラーがあれば例外を発生
