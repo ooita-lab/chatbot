@@ -1,40 +1,39 @@
 import streamlit as st
 import google.generativeai as genai
 
-# Show title and description.
+# タイトルと説明
 st.title("💬 Chatbot")
 st.write(
-    "This is a simple chatbot that uses Google's Gemini model to generate responses. "
-    "To use this app, you need to provide a Gemini API key, which you can get [here](https://ai.google.dev/gemini-api/docs/api-key). "
-    "You can also learn how to build this app step by step by [following our tutorial](https://docs.streamlit.io/develop/tutorials/llms/build-conversational-apps)."
+    "Google Geminiモデルを使ったシンプルなチャットボットです。"
+    "利用にはGemini APIキーが必要です。APIキーは [こちら](https://ai.google.dev/gemini-api/docs/api-key) から取得できます。"
 )
 
-# Ask user for their Gemini API key via `st.text_input`.
+# Gemini APIキー入力欄
 gemini_api_key = st.text_input("Gemini API Key", type="password")
 if not gemini_api_key:
-    st.info("Please add your Gemini API key to continue.", icon="🗝️")
+    st.info("APIキーを入力してください。", icon="🗝️")
 else:
-    # Configure Gemini client
+    # Geminiクライアントの設定
     genai.configure(api_key=gemini_api_key)
     model = genai.GenerativeModel("gemini-pro")
 
-    # Create a session state variable to store the chat messages.
+    # チャット履歴の保存
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # Display the existing chat messages via `st.chat_message`.
+    # 履歴の表示
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # Create a chat input field to allow the user to enter a message.
-    if prompt := st.chat_input("What is up?"):
-        # Store and display the current prompt.
+    # ユーザー入力欄
+    if prompt := st.chat_input("メッセージを入力してください"):
+        # 履歴へ追加＆表示
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # GeminiのAPIはOpenAIとは異なり、roleの指定をサポートしませんが、履歴としてuser/assistantプロンプトを送ることはできます。
+        # Gemini API用の履歴変換
         history = []
         for m in st.session_state.messages:
             if m["role"] == "user":
@@ -42,12 +41,11 @@ else:
             else:
                 history.append({"role": "model", "parts": [m["content"]]})
 
-        # Geminiモデルに履歴を渡して応答を生成
+        # Geminiへリクエスト
         response = model.generate_content(history)
 
-        # レスポンスの本文部分を抽出
+        # レスポンス本文抽出
         output = response.text if hasattr(response, "text") else str(response)
-
         with st.chat_message("assistant"):
             st.markdown(output)
         st.session_state.messages.append({"role": "assistant", "content": output})
