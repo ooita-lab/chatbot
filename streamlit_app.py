@@ -49,64 +49,62 @@ else:
     uploaded_file = st.file_uploader("CSVファイルをアップロードしてください（B列の文章をチェックします）", type="csv")
     
     if uploaded_file:
-        st.subheader("CSVファイルの一括チェックを実行中...")
-        
-        # CSVファイルの読み込みとエンコーディングの対応
-        try:
-            # 1. Shift JISで試行（Windows環境で一般的な形式）
-            df = pd.read_csv(uploaded_file, encoding='shift_jis')
-        except UnicodeDecodeError:
-            # 2. Shift JISで失敗した場合、UTF-8で再試行（WebやMac環境で一般的）
+        # 💡 修正: CSV処理全体をst.spinner()で囲むことで、エラーを回避し、UIをシンプルにする
+        with st.spinner("CSVファイルの一括チェックを実行中..."):
+            
+            # CSVファイルの読み込みとエンコーディングの対応
             try:
-                 # ファイルポインタをリセットして最初から読み込み直す
-                 uploaded_file.seek(0)
-                 df = pd.read_csv(uploaded_file, encoding='utf-8')
-                 st.warning("ファイルはUTF-8で読み込まれました。")
-            except Exception as e:
-                st.error(f"CSVファイルの読み込み中にエンコーディングエラーが発生しました。ファイルがShift JISまたはUTF-8以外の形式で保存されている可能性があります。: {e}")
-                st.stop()
-        except Exception as e:
-            st.error(f"CSVファイルの読み込み中にエラーが発生しました: {e}")
-            st.stop()
-            
-        # B列（インデックス1）の存在チェック
-        if df.shape[1] < 2:
-             st.warning("アップロードされたCSVにはB列（インデックス1）が存在しません。")
-             st.stop()
-
-        # B2以降の行を処理 (インデックス1から最後まで)
-        # 欠損値を除去してリスト化
-        texts_to_check = df.iloc[1:, 1].dropna().tolist()
-        
-        if not texts_to_check:
-            st.info("B2以降のセルにチェックすべき有効な文章が見つかりませんでした。")
-        else:
-            st.info(f"合計 {len(texts_to_check)} 個の文章をチェックします。")
-            
-            results_container = st.container()
-
-            # 各文章を繰り返し処理してAPIに送信
-            for i, text_prompt in enumerate(texts_to_check):
-                
-                results_container.markdown(f"#### 📄 文章 {i + 2} (B{i + 2}セル):")
-                results_container.text(text_prompt)
-
-                api_url = API_URL_TEMPLATE.format(model_name=model_name, api_key=gemini_api_key)
-
-                # 一括チェック時のAPIペイロード (履歴なし)
-                data = {
-                    "systemInstruction": {
-                        "parts": [{"text": SYSTEM_INSTRUCTION}]
-                    },
-                    "contents": [{"role": "user", "parts": [{"text": text_prompt}]}],
-                    "generationConfig": {
-                        "temperature": 0.5, 
-                        "topP": 0.8
-                    }
-                }
-
+                uploaded_file.seek(0) # ファイルポインタを先頭に戻す
                 try:
-                    with results_container.spinner(f"文章 {i + 2} の指摘を生成中..."):
+                    # 1. Shift JISで試行（Windows環境で一般的な形式）
+                    df = pd.read_csv(uploaded_file, encoding='shift_jis')
+                    st.warning("ファイルをShift JISで読み込みました。")
+                except UnicodeDecodeError:
+                    # 2. Shift JISで失敗した場合、UTF-8で再試行（WebやMac環境で一般的）
+                    uploaded_file.seek(0)
+                    df = pd.read_csv(uploaded_file, encoding='utf-8')
+                    st.warning("ファイルをUTF-8で読み込みました。")
+            except Exception as e:
+                st.error(f"CSVファイルの読み込み中にエラーが発生しました。エンコーディングを確認してください: {e}")
+                st.stop()
+            
+            # B列（インデックス1）の存在チェック
+            if df.shape[1] < 2:
+                 st.warning("アップロードされたCSVにはB列（インデックス1）が存在しません。")
+                 st.stop()
+
+            # B2以降の行を処理 (インデックス1から最後まで)
+            texts_to_check = df.iloc[1:, 1].dropna().tolist()
+            
+            if not texts_to_check:
+                st.info("B2以降のセルにチェックすべき有効な文章が見つかりませんでした。")
+            else:
+                st.info(f"合計 {len(texts_to_check)} 個の文章をチェックします。")
+                
+                results_container = st.container()
+
+                # 各文章を繰り返し処理してAPIに送信
+                for i, text_prompt in enumerate(texts_to_check):
+                    
+                    results_container.markdown(f"#### 📄 文章 {i + 2} (B{i + 2}セル):")
+                    results_container.text(text_prompt)
+
+                    api_url = API_URL_TEMPLATE.format(model_name=model_name, api_key=gemini_api_key)
+
+                    # 一括チェック時のAPIペイロード (履歴なし)
+                    data = {
+                        "systemInstruction": {
+                            "parts": [{"text": SYSTEM_INSTRUCTION}]
+                        },
+                        "contents": [{"role": "user", "parts": [{"text": text_prompt}]}],
+                        "generationConfig": {
+                            "temperature": 0.5, 
+                            "topP": 0.8
+                        }
+                    }
+
+                    try:
+                        # 💡 修正: 個別のスピナーを削除。全体スピナーが動作中
                         response = requests.post(api_url, headers=HEADERS, json=data, timeout=TIMEOUT)
                         response.raise_for_status()
                         
@@ -125,17 +123,17 @@ else:
                         results_container.markdown(f"**指摘 ({model_name}):**")
                         results_container.markdown(gemini_reply)
                         results_container.markdown("---")
-                
-                except requests.exceptions.RequestException as e:
-                    error_message = f"文章 {i + 2} のAPIリクエストエラー: {e}（APIキー、モデル名、ネットワークを確認してください）"
-                    results_container.error(error_message)
-                    results_container.markdown("---")
-                except Exception as e:
-                    error_message = f"文章 {i + 2} で予期せぬエラーが発生しました: {e}"
-                    results_container.error(error_message)
-                    results_container.markdown("---")
+                    
+                    except requests.exceptions.RequestException as e:
+                        error_message = f"文章 {i + 2} のAPIリクエストエラー: {e}（APIキー、モデル名、ネットワークを確認してください）"
+                        results_container.error(error_message)
+                        results_container.markdown("---")
+                    except Exception as e:
+                        error_message = f"文章 {i + 2} で予期せぬエラーが発生しました: {e}"
+                        results_container.error(error_message)
+                        results_container.markdown("---")
 
-            st.success("CSVファイルの一括チェックが完了しました！")
+                st.success("CSVファイルの一括チェックが完了しました！")
     
     # ----------------------------------------------------
     # 通常のチャットセクション (ファイルがアップロードされていない場合のみ表示)
@@ -184,25 +182,27 @@ else:
             }
 
             try:
-                # アシスタントの応答をチャットメッセージコンテナ内に表示
-                with st.chat_message("assistant"):
-                    with st.spinner(f"{model_name} が指摘を生成中..."):
-                        response = requests.post(api_url, headers=HEADERS, json=data, timeout=TIMEOUT)
-                        response.raise_for_status() # HTTPエラーがあれば例外を発生
-                        
-                        result = response.json()
-                        
-                        # APIからのレスポンス構造のチェックと応答の取得
-                        gemini_reply = "API応答を解析できませんでした。"
-                        if "candidates" in result and result["candidates"]:
-                            candidate = result["candidates"][0]
-                            if "content" in candidate and \
-                               "parts" in candidate["content"] and \
-                               candidate["content"]["parts"]:
-                                
-                                gemini_reply = candidate["content"]["parts"][0]["text"]
+                # 💡 修正: st.chat_message() の中ではなく、st.spinner()を単独で使用
+                with st.spinner(f"{model_name} が指摘を生成中..."):
+                    response = requests.post(api_url, headers=HEADERS, json=data, timeout=TIMEOUT)
+                    response.raise_for_status() # HTTPエラーがあれば例外を発生
+                    
+                    result = response.json()
+                    
+                    # APIからのレスポンス構造のチェックと応答の取得
+                    gemini_reply = "API応答を解析できませんでした。"
+                    if "candidates" in result and result["candidates"]:
+                        candidate = result["candidates"][0]
+                        if "content" in candidate and \
+                           "parts" in candidate["content"] and \
+                           candidate["content"]["parts"]:
                             
-                        st.markdown(gemini_reply)
+                            gemini_reply = candidate["content"]["parts"][0]["text"]
+                        
+                
+                # スピナーブロックの外でメッセージを表示する
+                with st.chat_message("assistant"):
+                    st.markdown(gemini_reply)
                 
                 # アシスタントの応答をセッションステートに保存
                 st.session_state.messages.append({"role": "assistant", "content": gemini_reply})
