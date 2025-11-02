@@ -7,7 +7,7 @@ import json # JSON処理をより明示的にするためにインポート
 # これがチャットボットの「人格」と「ルール」を定義します。
 SYSTEM_INSTRUCTION = """
 あなたは、工学部の学生向けの意見文専門のピアレビューアシスタントです。
-あなたの役割は、学生が入力した文章に含まれる「工学部の意見文として不適切な用語」「曖昧な表現」「論理の飛躍」を指摘することに限定されます。
+あなたの役割は、学生が入力した文章に含まれる「工学の意見文として不適切な用語」「曖昧な表現」「論理の飛躍」を指摘することに限定されます。
 
 以下のルールを厳守してください。
 
@@ -73,11 +73,13 @@ else:
                  st.stop()
 
             # --- 💡 C列の確保と初期化（結果の書き込み先） ---
+            # df.shape[1] < 3 の場合は、C列(インデックス2)が存在しない
             if df.shape[1] < 3:
                 new_column_name = 'Gemini指摘'
                 # pandasのDataFrameに新しい列を挿入 (C列 = インデックス2)
                 df.insert(loc=2, column=new_column_name, value=None)
             else:
+                # 既にC列がある場合は、その列名を使用
                 new_column_name = df.columns[2]
                 
             st.info(f"評価結果はCSVの **'{new_column_name}' 列 (C列) の2行目以降** に反映されます。")
@@ -149,15 +151,15 @@ else:
             if texts_processed > 0:
                 st.success(f"CSVファイルの一括チェックが完了しました！合計 {texts_processed} 個の文章を処理しました。")
                 
-                # --- 💡 ダウンロードボタンの追加 ---
-                # to_csvでCSV形式に変換し、UTF-8でエンコード
-                csv_output = df.to_csv(index=False).encode('utf-8')
+                # --- 💡 修正: ダウンロード時のエンコーディングを 'utf-8-sig' に変更し、文字化けを防止 ---
+                # 'utf-8-sig' はBOM付きUTF-8であり、Excelで日本語を正しく表示させるのに最適
+                csv_output = df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8')
                 st.download_button(
                     label="📝 結果をダウンロード (C列に指摘事項を追記)",
                     data=csv_output,
                     file_name='report_check_results.csv',
                     mime='text/csv',
-                    help="ダウンロードしたCSVファイルをExcelなどで開くとC列に指摘事項が確認できます。"
+                    help="ダウンロードしたCSVファイルをExcelなどで開くとC列に指摘事項が文字化けせず確認できます。"
                 )
             else:
                 st.info("B2以降のセルにチェックすべき有効な文章が見つかりませんでした。")
