@@ -151,9 +151,21 @@ else:
             if texts_processed > 0:
                 st.success(f"CSVファイルの一括チェックが完了しました！合計 {texts_processed} 個の文章を処理しました。")
                 
-                # --- 💡 修正: ダウンロード時のエンコーディングを 'utf-8-sig' に変更し、文字化けを防止 ---
-                # 'utf-8-sig' はBOM付きUTF-8であり、Excelで日本語を正しく表示させるのに最適
-                csv_output = df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8')
+                # --- 💡 文字化け修正 (再修正): to_csv()の結果を直接バイトデータとして扱う ---
+                # to_csvの結果はすでにエンコードされた文字列なので、さらに.encode('utf-8')すると二重エンコードになる
+                # バイト列を取得するため io.StringIO と .getvalue().encode('utf-8') を使用するか、
+                # pandas 1.0以降であれば .to_csv(..., encoding='utf-8-sig') はバイト列を返す。
+                # しかし、ここではStreamlitが推奨する io.BytesIO を使ってより確実にバイト列を渡す。
+                import io
+                
+                # io.StringIOを使って文字列として書き出し、それをエンコードする
+                csv_buffer = io.StringIO()
+                df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
+                
+                # バイトデータとして準備
+                csv_output = csv_buffer.getvalue().encode('utf-8-sig')
+
+
                 st.download_button(
                     label="📝 結果をダウンロード (C列に指摘事項を追記)",
                     data=csv_output,
